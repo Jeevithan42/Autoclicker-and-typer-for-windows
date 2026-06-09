@@ -52,14 +52,15 @@ def perform_action(action: ClickAction):
     time.sleep(action.interval)
 
 
-def run_actions(actions):
+def run_actions(actions, stop_event: threading.Event):
     try:
-        while True:
+        while not stop_event.is_set():
             for act in actions:
+                if stop_event.is_set():
+                    break
                 perform_action(act)
-    except KeyboardInterrupt:
-        # Graceful stop when user hits Ctrl+C in console
-        print("Auto‑clicker stopped by user.")
+    except Exception as e:
+        print(f"Auto‑clicker stopped: {e}")
 
 # ---------------------------------------------------------------------------
 # Tkinter GUI
@@ -69,8 +70,15 @@ class AutoClickerApp(tk.Tk):
         super().__init__()
         self.title("Auto‑Clicker Builder")
         self.geometry("600x400")
+        self.configure(bg="#1e1e1e")
         self.actions: list[ClickAction] = []
+        self.stop_event: threading.Event | None = None
+        style = ttk.Style(self)
+        style.theme_use('clam')
+        style.configure("Treeview", background="#2e2e2e", foreground="white", fieldbackground="#2e2e2e")
+        style.map("Treeview", background=[('selected', '#4a90e2')])
         self._build_ui()
+        self.status_var = tk.StringVar(value="Ready")
     def _build_ui(self):
         # Table / list of actions
         self.tree = ttk.Treeview(self, columns=("X", "Y", "Button", "Type", "Delay"), show="headings")
@@ -86,8 +94,11 @@ class AutoClickerApp(tk.Tk):
         ttk.Button(btn_frame, text="Add Action", command=self.add_action).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Remove Selected", command=self.remove_selected).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Start", command=self.start_clicker).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="Stop", command=self.stop_clicker).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="Run Once", command=self.run_once).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text="Test Click", command=self.test_click).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text="Exit", command=self.quit).pack(side=tk.RIGHT, padx=5)
+        ttk.Label(self, textvariable=self.status_var, anchor="w").pack(fill=tk.X, padx=10, pady=4)
     def test_click(self):
         """Move mouse to (100, 100) and click – used for debugging."""
         try:
@@ -114,14 +125,30 @@ class AutoClickerApp(tk.Tk):
             self.tree.delete(item)
             del self.actions[idx]
 
+    def run_once(self):
+        if not self.actions:
+            messagebox.showwarning("No actions", "Add at least one action before running.")
+            return
+        # Run actions once without threading
+        for act in self.actions:
+            perform_action(act)
+        self.status_var.set("Run once completed.")
+
     def start_clicker(self):
         if not self.actions:
             messagebox.showwarning("No actions", "Add at least one action before starting.")
             return
-        # Run in background thread so UI stays responsive
-        t = threading.Thread(target=run_actions, args=(self.actions,), daemon=True)
+        # Initialize stop event and run in background thread so UI stays responsive
+        self.stop_event = threading.Event()
+        t = threading.Thread(target=run_actions, args=(self.actions, self.stop_event), daemon=True)
         t.start()
-        messagebox.showinfo("Started", "Auto‑clicker is running in the background.\nPress Ctrl+C in the console to stop.")
+        self.status_var.set("Auto‑clicker started.")
+    
+    def stop_clicker(self):
+        """Stop the running auto‑clicker thread if active."""
+        if self.stop_event:
+            self.stop_event.set()
+            self.status_var.set("Auto‑clicker stopped.")
 
     def save_config(self):
         if not self.actions:
@@ -208,8 +235,6 @@ if __name__ == "__main__":
         pass
     app = AutoClickerApp()
     app.mainloop()
-
-
 
 
 
